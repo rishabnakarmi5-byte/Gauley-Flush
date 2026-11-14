@@ -46,6 +46,8 @@ const pot = async (p) => num(await p.textContent(T('pot-raw')));
 const netOf = async (p, name) => num(await p.textContent(T(`net-${name}`)));
 const potIs = (p, n) => until(async () => (await pot(p)) === n, `pot to be ${n} (is ${'?'})`);
 const netIs = (p, name, n) => until(async () => (await netOf(p, name)) === n, `${name} net to be ${n}`);
+const pileSum = (p) => p.evaluate(() => [...document.querySelectorAll('[data-testid="pile-note"]')].reduce((a, e) => a + Number(e.dataset.value) * Number(e.dataset.qty), 0));
+const pileIs = (p, n) => until(async () => (await pileSum(p)) === n, `banknote pile to add up to ${n}`);
 const shot = (p, name) => p.screenshot({ path: `${SHOTS}/${name}.png` });
 
 // installs a WebSocket wrapper so tests can hold incoming messages and drop sockets
@@ -235,14 +237,70 @@ await step('undo takes back your own latest bet only', async () => {
   for (const p of [A, B, C]) await potIs(p.page, 265);
 });
 
-await step('table mid-hand screenshot', async () => { await sleep(900); await shot(B.page, '03-table-mid-hand'); });
+await step('table mid-hand screenshot; the banknote pile adds up exactly to the pot on every phone', async () => {
+  for (const p of [A, B, C]) await pileIs(p.page, 265);
+  assert((await B.page.locator('[data-testid="pile-note"]').count()) >= 5, 'a heap of several notes');
+  await sleep(900); await shot(B.page, '03-table-mid-hand');
+});
+
+await step('witty line: tap cycles script, romanised, English, and the vote is remembered', async () => {
+  const L = B.page;
+  await L.waitForSelector(T('witty-text'));
+  eq(await L.getAttribute(T('witty-text'), 'data-view'), '0', 'starts in own script');
+  const id0 = await L.getAttribute(T('witty'), 'data-line');
+  for (const v of ['1', '2', '0']) { await L.click(T('witty-text')); await until(async () => (await L.getAttribute(T('witty-text'), 'data-view')) === v, `view ${v}`); }
+  await L.click(T('witty-up'));
+  await until(async () => (await L.getAttribute(T('witty-up'), 'aria-pressed')) === 'true', 'up is selected');
+  const stored = await L.evaluate((i) => localStorage.getItem('gf:vote:' + i), id0);
+  eq(stored, 'up', 'vote saved in localStorage');
+});
+
+await step('feedback: thumbs-down opens the sheet; POST /api/feedback upserts; export needs the key', async () => {
+  const L = B.page;
+  await L.click(T('witty-down'));
+  await L.waitForSelector(T('feedback-sheet'));
+  await L.fill(T('feedback-text'), 'e2e: wrong word');
+  await L.click(T('feedback-send'));
+  await L.waitForSelector(T('feedback-sheet'), { state: 'detached' });
+  const lineId = await L.getAttribute(T('witty'), 'data-line');
+  const post = (b) => fetch(`${BASE}/api/feedback`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) });
+  const dev = 'e2e-device-0001';
+  eq((await post({ lineId: 'e2e-x', lang: 'Nepali', vote: 'up', deviceId: dev })).status, 200, 'valid post');
+  eq((await post({ lineId: 'e2e-x', lang: 'Nepali', vote: 'down', text: 'fix\u0000 it', deviceId: dev })).status, 200, 'upsert');
+  eq((await post({ lineId: 'x'.repeat(41), lang: 'Nepali', vote: 'up', deviceId: dev })).status, 400, 'long id refused');
+  eq((await post({ lineId: 'e2e-x', vote: 'down', text: 'y'.repeat(301), deviceId: dev })).status, 400, 'long text refused');
+  eq((await post({ lineId: 'e2e-x', vote: 'meh', deviceId: dev })).status, 400, 'bad vote refused');
+  eq((await fetch(`${BASE}/api/feedback/export?key=wrong`)).status, 404, 'wrong key is a 404');
+  eq((await fetch(`${BASE}/api/feedback/export`)).status, 404, 'no key is a 404');
+  const ok = await fetch(`${BASE}/api/feedback/export?key=e2e-admin-key`);
+  eq(ok.status, 200, 'right key');
+  const data = await ok.json();
+  const row = data.summary.find((r) => r.lineId === 'e2e-x');
+  assert(row && row.up === 0 && row.down === 1, `one row per device+line, latest vote wins: ${JSON.stringify(row)}`);
+  assert(data.comments.some((c) => c.lineId === 'e2e-x' && c.text === 'fix it'), 'comment stored, control chars stripped');
+  assert(data.comments.some((c) => c.lineId === lineId && c.text === 'e2e: wrong word'), 'the UI comment arrived');
+  const csv = await (await fetch(`${BASE}/api/feedback/export?key=e2e-admin-key&format=csv`)).text();
+  assert(csv.startsWith('lineId,lang,vote,text,at') && csv.includes('e2e-x'), 'csv export');
+  // owner page
+  const O = await phone('Owner');
+  await O.page.goto(`${BASE}/#/feedback`);
+  await O.page.fill(T('admin-key'), 'nope');
+  await O.page.click(T('admin-load'));
+  await O.page.waitForSelector(T('admin-error'));
+  await O.page.fill(T('admin-key'), 'e2e-admin-key');
+  await O.page.click(T('admin-load'));
+  await O.page.waitForSelector(T('admin-summary'));
+  assert((await O.page.locator(T('admin-row')).count()) >= 1, 'owner page lists rows');
+  await shot(O.page, '09-owner-feedback');
+  await O.ctx.close();
+});
 
 await step('pack: Hari packs, pot stays, hand continues', async () => {
   await C.page.click(T('pack'));
   await until(async () => (await A.page.textContent(T('seat-Hari'))).includes('packed'), 'Hari marked packed');
   await potIs(A.page, 265);
-  assert((await C.page.textContent(T('actionbar'))).includes('You packed'), 'packed message');
-  assert((await A.page.textContent(T('feed'))).includes('Hari packed'), 'feed shows pack');
+  await until(async () => (await C.page.textContent(T('actionbar'))).includes('You packed'), 'packed message on the packer\'s own phone');
+  await until(async () => (await A.page.textContent(T('feed'))).includes('Hari packed'), 'feed shows pack');
 });
 
 await step('stale client gets a friendly error toast (two people claim at once)', async () => {
@@ -251,8 +309,9 @@ await step('stale client gets a friendly error toast (two people claim at once)'
   await B.page.waitForTimeout(400);
   await B.page.waitForSelector(T('iwon')); // B still sees old UI
   await B.page.click(T('iwon'));
-  await B.page.waitForSelector(T('toast'));
-  const txt = await B.page.textContent(T('toast'));
+  const claimToast = B.page.locator(T('toast')).filter({ hasText: /claim/i });  // an earlier "Thanks, noted" toast may still be fading
+  await claimToast.first().waitFor();
+  const txt = await claimToast.first().textContent();
   assert(/claim/i.test(txt), `toast mentions claim: ${txt}`);
   await B.page.evaluate(() => window.__release());
   await B.page.waitForSelector(T('claim-answer'));

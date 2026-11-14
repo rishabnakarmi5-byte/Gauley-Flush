@@ -1,7 +1,9 @@
 import { CODE_LETTERS, CODE_RE, type ConfigResponse } from '../shared/protocol';
+import { Feedback } from './feedback';
+import { keyMatches } from './feedback-core';
 import { Room, type Env } from './room';
 
-export { Room };
+export { Room, Feedback };
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
@@ -24,6 +26,22 @@ export default {
     if (parts[1] === 'config' && request.method === 'GET') {
       const body: ConfigResponse = { googleClientId: env.GOOGLE_CLIENT_ID ?? '' };
       return json(body);
+    }
+
+    if (parts[1] === 'feedback') {
+      const stub = env.FEEDBACK.get(env.FEEDBACK.idFromName('global'));
+      if (parts.length === 2 && request.method === 'POST') {
+        const text = await request.text();
+        if (text.length > 4000) return json({ error: 'Too big.' }, 413);
+        return stub.fetch('https://feedback/submit', { method: 'POST', body: text, headers: { 'x-client-ip': request.headers.get('cf-connecting-ip') ?? 'local' } });
+      }
+      if (parts[2] === 'export' && parts.length === 3 && request.method === 'GET') {
+        if (!(await keyMatches(url.searchParams.get('key'), env.ADMIN_KEY))) return json({ error: 'Not found' }, 404);
+        const q = new URLSearchParams();
+        for (const k of ['format', 'view']) { const v = url.searchParams.get(k); if (v) q.set(k, v); }
+        return stub.fetch(`https://feedback/export?${q}`);
+      }
+      return json({ error: 'Not found' }, 404);
     }
 
     if (parts[1] === 'rooms' && parts.length === 2 && request.method === 'POST') {

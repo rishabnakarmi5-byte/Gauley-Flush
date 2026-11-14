@@ -2,7 +2,9 @@ import { useEffect, useState } from 'preact/hooks';
 import { allowedBets, settle } from '../engine';
 import type { Player } from '../engine/types';
 import type { PublicState } from '../shared/protocol';
-import { Avatar, QR, Sheet, closeSheet, openSheet, roomLink, shareRoom } from './components';
+import { ArtBackdrop, Avatar, QR, Sheet, closeSheet, godArt, openSheet, roomLink, shareRoom } from './components';
+import { IconCheck, IconShare } from './icons';
+import { WittyLine } from './witty';
 import { fmt, nameOf, signed } from './format';
 import { HowItWorks } from './screens';
 import { act, addLocalPlayer, forgetRoom, setActive, toast } from './store';
@@ -53,7 +55,7 @@ export function SettingsForm(props: { c: RoomCtx }) {
       <label class="field"><span>Max single bet (Rs)</span>
         <input data-testid="set-max" inputMode="numeric" value={maxBet} disabled={locked} onInput={digits(setMaxBet)} /></label>
       {st.hand ? <p class="muted">Rules are locked while a hand is live.</p> : !props.c.hostLike ? <p class="muted">Only the host can change the rules.</p>
-        : <button class="btn secondary" data-testid="save-settings" onClick={save}>Save rules</button>}
+        : <button class="btn outline" data-testid="save-settings" onClick={save}>Save rules</button>}
     </div>
   );
 }
@@ -80,10 +82,10 @@ export function PlayersList(props: { c: RoomCtx; manage?: boolean }) {
             {props.manage && !p.left && (
               <div class="pactions">
                 {c.hostLike && p.id !== st.hostId && (
-                  <button class="btn tiny ghost" onClick={() => act({ by: c.hostBy ?? undefined, type: 'transferHost', target: p.id })}>Make host</button>
+                  <button class="btn text slim" onClick={() => act({ by: c.hostBy ?? undefined, type: 'transferHost', target: p.id })}>Make host</button>
                 )}
                 {(c.hostLike || c.you.includes(p.id)) && p.id !== st.hostId && (
-                  <button class="btn tiny danger" disabled={inLive} title={inLive ? 'In a live hand' : ''}
+                  <button class="btn text danger slim" disabled={inLive} title={inLive ? 'In a live hand' : ''}
                     onClick={() => { if (confirm(`Remove ${p.name}?${p.net !== 0 ? ' They will stay in the settlement as "left".' : ''}`)) void act({ by: c.you.includes(p.id) ? p.id : c.hostBy ?? undefined, type: 'removePlayer', target: p.id }); }}>
                     {c.you.includes(p.id) && p.id === c.active ? 'Leave' : 'Remove'}
                   </button>
@@ -119,7 +121,7 @@ function AddLocal() {
     <div class="addlocal">
       <input data-testid="add-local-name" placeholder="Add someone without a phone" value={name} maxLength={16}
         onInput={(e) => setName((e.target as HTMLInputElement).value)} onKeyDown={(e) => { if (e.key === 'Enter') void add(); }} />
-      <button class="btn secondary" data-testid="add-local" onClick={add}>Add</button>
+      <button class="btn outline slim" data-testid="add-local" onClick={add}>Add</button>
     </div>
   );
 }
@@ -129,37 +131,41 @@ export function Lobby(props: { c: RoomCtx }) {
   const { c } = props;
   const st = c.st;
   const canDeal = c.hostLike;
+  const n = st.players.filter((p) => !p.left).length;
   return (
     <div class="screen lobby">
-      <div class="lobby-top">
-        <div class="code-label">Table code</div>
+      <ArtBackdrop name={godArt('buddha')} class="lobby-art" />
+      <header class="lobby-top">
+        <div class="eyebrow">Table code</div>
         <div class="code-big" data-testid="room-code">{st.code}</div>
-        <QR text={roomLink(st.code)} size={176} />
-        <div class="link-row">
-          <button class="btn ghost" data-testid="share" onClick={() => shareRoom(st.code)}>Share invite link</button>
-        </div>
-        <p class="muted small">Friends scan this or type the 4 letters on the home screen.</p>
-      </div>
+        <div class="qr-panel"><QR text={roomLink(st.code)} size={168} /></div>
+        <button class="btn text" data-testid="share" onClick={() => shareRoom(st.code)}><IconShare size={18} /> Share invite link</button>
+        <p class="muted small">Friends scan this, or type the 4 letters on the home screen.</p>
+      </header>
 
-      <div class="card">
-        <h3>At the table ({st.players.filter((p) => !p.left).length}/12)</h3>
+      <section class="block">
+        <h3 class="eyebrow">At the table <span class="count">{n} / 12</span></h3>
         <PlayersList c={c} manage />
-        {c.isHost && st.players.filter((p) => !p.left).length < 12 && <AddLocal />}
+        {c.isHost && n < 12 && <AddLocal />}
         <ClassicToggle c={c} />
-      </div>
+      </section>
 
-      <div class="card">
-        <h3>House rules</h3>
+      <section class="block">
+        <h3 class="eyebrow">House rules</h3>
         <SettingsForm c={c} />
-      </div>
+      </section>
+
+      <WittyLine mood="waiting" class="lobby-witty" />
 
       <div class="lobby-cta">
-        <button class="btn primary big" data-testid="deal" disabled={!canDeal || st.players.filter((p) => !p.left).length < 2}
+        <button class="btn primary" data-testid="deal" disabled={!canDeal || n < 2}
           onClick={() => act({ by: c.hostBy ?? undefined, type: 'newHand' })}>
-          {st.players.filter((p) => !p.left).length < 2 ? 'Waiting for a 2nd player…' : canDeal ? 'Deal the first hand' : 'Waiting for the host to deal'}
+          {n < 2 ? 'Waiting for a 2nd player…' : canDeal ? 'Deal the first hand' : 'Waiting for the host to deal'}
         </button>
-        <button class="btn ghost" onClick={() => openSheet('how')}>How it works</button>
-        <button class="btn ghost" onClick={() => { if (confirm('Leave this table?')) { void act({ type: 'removePlayer', target: c.active }).then(() => { forgetRoom(st.code); location.hash = '#/'; }); } }}>Leave table</button>
+        <div class="text-row">
+          <button class="btn text" onClick={() => openSheet('how')}>How it works</button>
+          <button class="btn text quiet" onClick={() => { if (confirm('Leave this table?')) { void act({ type: 'removePlayer', target: c.active }).then(() => { forgetRoom(st.code); location.hash = '#/'; }); } }}>Leave table</button>
+        </div>
       </div>
     </div>
   );
@@ -196,36 +202,36 @@ export function MenuSheet(props: { c: RoomCtx }) {
   return (
     <Sheet title="Table menu" onClose={closeSheet} testid="menu-sheet">
       <section>
-        <h3>Invite</h3>
-        <div class="menu-qr"><QR text={roomLink(st.code)} size={150} />
-          <div><div class="code-big small">{st.code}</div><button class="btn ghost" onClick={() => shareRoom(st.code)}>Share link</button></div></div>
+        <h3 class="eyebrow">Invite</h3>
+        <div class="menu-qr"><div class="qr-panel"><QR text={roomLink(st.code)} size={132} /></div>
+          <div><div class="code-big small">{st.code}</div><button class="btn text" onClick={() => shareRoom(st.code)}>Share link</button></div></div>
       </section>
       <section>
-        <h3>Players</h3>
+        <h3 class="eyebrow">Players</h3>
         <PlayersList c={c} manage />
         {c.isHost && st.players.filter((p) => !p.left).length < 12 && <AddLocal />}
       </section>
       <section>
-        <h3>My table settings</h3>
+        <h3 class="eyebrow">My table settings</h3>
         <ClassicToggle c={c} />
       </section>
       <section>
-        <h3>House rules</h3>
+        <h3 class="eyebrow">House rules</h3>
         <SettingsForm c={c} />
       </section>
       {c.hostLike && (
         <section>
-          <h3>Host tools</h3>
+          <h3 class="eyebrow">Host tools</h3>
           <div class="stack">
             {st.hand && <button class="btn danger" data-testid="void-hand" onClick={() => { if (confirm('Void this hand and refund everyone?')) { void act({ by: c.hostBy ?? undefined, type: 'voidHand' }); closeSheet(); } }}>Void this hand (refund all)</button>}
-            {!st.hand && st.lastAward && <button class="btn secondary" data-testid="undo-award" onClick={() => { void act({ by: c.hostBy ?? undefined, type: 'undoAward' }); closeSheet(); }}>Undo last award ({fmt(st.lastAward.pot)} to {c.name(st.lastAward.winner)})</button>}
-            {!st.hand && <button class="btn secondary" onClick={() => { void act({ by: c.hostBy ?? undefined, type: 'forceEnd' }); closeSheet(); }}>Force end game now</button>}
+            {!st.hand && st.lastAward && <button class="btn outline" data-testid="undo-award" onClick={() => { void act({ by: c.hostBy ?? undefined, type: 'undoAward' }); closeSheet(); }}>Undo last award ({fmt(st.lastAward.pot)} to {c.name(st.lastAward.winner)})</button>}
+            {!st.hand && <button class="btn outline" onClick={() => { void act({ by: c.hostBy ?? undefined, type: 'forceEnd' }); closeSheet(); }}>Force end game now</button>}
           </div>
         </section>
       )}
       <section>
-        <button class="btn ghost" onClick={() => { closeSheet(); setTimeout(() => openSheet('how'), 0); }}>How it works</button>
-        <button class="btn ghost" onClick={() => { if (confirm('Leave this table? Your balance stays on the ledger.')) { void act({ type: 'removePlayer', target: c.active }).then(() => { forgetRoom(st.code); location.hash = '#/'; }); } }}>Leave table</button>
+        <button class="btn text" onClick={() => { closeSheet(); setTimeout(() => openSheet('how'), 0); }}>How it works</button>
+        <button class="btn text" onClick={() => { if (confirm('Leave this table? Your balance stays on the ledger.')) { void act({ type: 'removePlayer', target: c.active }).then(() => { forgetRoom(st.code); location.hash = '#/'; }); } }}>Leave table</button>
       </section>
     </Sheet>
   );
@@ -246,13 +252,17 @@ export function Settle(props: { c: RoomCtx }) {
   const myWinners = c.you.map((id) => st.players.find((p) => p.id === id)!).filter((p) => p && p.net > 0);
   return (
     <div class="screen settle">
-      <h1>Settle up</h1>
-      <p class="tagline">Game over. Here is who pays whom, in the fewest transfers.</p>
+      <ArtBackdrop name={godArt('laxmi')} class="settle-art" />
+      <header class="settle-head">
+        <div class="eyebrow">Game over</div>
+        <h1>Settle up</h1>
+        <p class="lede">Who pays whom, in the fewest transfers.</p>
+      </header>
 
-      <div class="card">
-        <h3>Transfers</h3>
+      <section class="block">
+        <h3 class="eyebrow">Transfers</h3>
         {!transfers.length && <p class="muted" data-testid="all-square">Everyone is square. Rare. Suspicious. Beautiful.</p>}
-        <ul class="transfers" data-testid="transfers">
+        <ul class="ledger" data-testid="transfers">
           {transfers.map((t) => {
             const paid = !!st.paid[t.key];
             const mine = c.you.includes(t.from) ? t.from : c.you.includes(t.to) ? t.to : null;
@@ -262,39 +272,39 @@ export function Settle(props: { c: RoomCtx }) {
                 <div class="amt">{fmt(t.amount)}</div>
                 <button class={`tick ${paid ? 'on' : ''}`} disabled={!mine} aria-pressed={paid} aria-label={paid ? 'Mark unpaid' : 'Mark paid'} data-testid="tick"
                   onClick={() => mine && act({ type: 'markPaid', by: mine, seat: mine, key: t.key, paid: !paid })}>
-                  {paid ? '✓ Paid' : 'Paid?'}
+                  {paid ? <><IconCheck size={16} /> Paid</> : 'Paid?'}
                 </button>
               </li>
             );
           })}
         </ul>
-      </div>
+      </section>
 
-      <div class="card">
-        <h3>Final standings</h3>
-        <ul class="standings">
+      <section class="block">
+        <h3 class="eyebrow">Final standings</h3>
+        <ul class="ledger standings">
           {[...st.players].sort((a, b) => b.net - a.net).map((p) => (
             <li key={p.id} data-testid={`final-${p.name}`}>
-              <Avatar p={p} size={30} /><span class="n">{p.name}{p.left ? ' (left)' : ''}</span>
+              <Avatar p={p} size={28} /><span class="n">{p.name}{p.left ? ' (left)' : ''}</span>
               {p.net === 0 ? <span class="square">square</span> : <span class={`net ${bal(p.net)}`}>{signed(p.net)}</span>}
             </li>
           ))}
         </ul>
-      </div>
+      </section>
 
       {myWinners.map((p) => {
         const n = Math.max(1, Math.round(p.net * 0.05));
         const choice = st.thanks[p.id];
         return (
-          <div class="card thanks" key={p.id} data-testid="thanks">
-            {c.tablet && <div class="muted">For {p.name}</div>}
+          <section class="block thanks" key={p.id} data-testid="thanks">
+            {c.tablet && <div class="eyebrow">For {p.name}</div>}
             {!choice && (
               <>
                 <h3>Feeling generous?</h3>
                 <p>Send 5% of your winnings ({fmt(n)}) to the developer as thanks?</p>
                 <div class="row">
                   <button class="btn primary" data-testid="thanks-yes" onClick={() => act({ type: 'thanks', by: p.id, seat: p.id, choice: 'yes' })}>Yes, {fmt(n)}</button>
-                  <button class="btn ghost" data-testid="thanks-no" onClick={() => act({ type: 'thanks', by: p.id, seat: p.id, choice: 'no' })}>Not now</button>
+                  <button class="btn text" data-testid="thanks-no" onClick={() => act({ type: 'thanks', by: p.id, seat: p.id, choice: 'no' })}>Not now</button>
                 </div>
                 <p class="muted small">Totally optional. It does not change anyone's settlement.</p>
               </>
@@ -303,24 +313,28 @@ export function Settle(props: { c: RoomCtx }) {
               <>
                 <h3>Dhanyabad!</h3>
                 <p>Scan to send {fmt(n)}. You are a legend.</p>
-                <img class="dev-qr" src={DEV_QR} alt="Developer payment QR" data-testid="dev-qr" />
-                <button class="btn ghost" onClick={() => act({ type: 'thanks', by: p.id, seat: p.id, choice: 'no' })}>Actually, skip it</button>
+                <div class="qr-sheet"><img class="dev-qr" src={DEV_QR} alt="Developer payment QR" data-testid="dev-qr" /></div>
+                <button class="btn text" onClick={() => act({ type: 'thanks', by: p.id, seat: p.id, choice: 'no' })}>Actually, skip it</button>
               </>
             )}
             {choice === 'no' && (
               <>
                 <p>No worries. Enjoy the winnings.</p>
-                <button class="btn ghost" onClick={() => act({ type: 'thanks', by: p.id, seat: p.id, choice: 'yes' })}>Changed my mind</button>
+                <button class="btn text" onClick={() => act({ type: 'thanks', by: p.id, seat: p.id, choice: 'yes' })}>Changed my mind</button>
               </>
             )}
-          </div>
+          </section>
         );
       })}
 
+      <WittyLine mood="settle" class="settle-witty" />
+
       <div class="settle-actions">
-        <button class="btn ghost" onClick={() => openSheet('history')}>Hand history</button>
-        {c.hostLike && <button class="btn secondary" data-testid="reopen" onClick={() => act({ by: c.hostBy ?? undefined, type: 'reopen' })}>Reopen table (play on)</button>}
-        <a class="btn ghost" href="#/" onClick={() => forgetRoom(st.code)}>Leave</a>
+        {c.hostLike && <button class="btn outline" data-testid="reopen" onClick={() => act({ by: c.hostBy ?? undefined, type: 'reopen' })}>Reopen table (play on)</button>}
+        <div class="text-row">
+          <button class="btn text" onClick={() => openSheet('history')}>Hand history</button>
+          <a class="btn text quiet" href="#/" onClick={() => forgetRoom(st.code)}>Leave</a>
+        </div>
       </div>
     </div>
   );

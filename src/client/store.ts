@@ -13,7 +13,7 @@ export interface Session {
 export interface Toast { id: number; text: string; kind: 'info' | 'error' | 'good' }
 
 export interface AppState {
-  route: { name: 'home' | 'room' | 'tablet' | 'how'; code?: string };
+  route: { name: 'home' | 'room' | 'tablet' | 'how' | 'feedback'; code?: string };
   session: Session | null;
   snap: Snapshot | null;
   online: boolean;
@@ -332,6 +332,9 @@ export function syncRoute() {
   } else if (h === '/tablet') {
     closeRoom();
     setState({ route: { name: 'tablet' }, sheet: null });
+  } else if (h === '/feedback') {
+    closeRoom();
+    setState({ route: { name: 'feedback' }, sheet: null });
   } else if (h === '/how') {
     closeRoom();
     setState({ route: { name: 'how' }, sheet: null });

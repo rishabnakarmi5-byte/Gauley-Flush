@@ -1,0 +1,4 @@
+# Copy to .dev.vars for `wrangler dev`. In production set it as a secret instead:
+#   npx wrangler secret put ADMIN_KEY
+# Key for the owner feedback export (GET /api/feedback/export?key=...) and the page at /#/feedback.
+ADMIN_KEY=change-me-to-a-long-random-string

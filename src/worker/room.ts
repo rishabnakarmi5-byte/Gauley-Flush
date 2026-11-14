@@ -1,10 +1,14 @@
 import { DurableObject } from 'cloudflare:workers';
 import { apply, createRoom, type Action, type State } from '../engine';
 import type { ClientMsg, JoinResponse, PublicState, ServerMsg, Snapshot } from '../shared/protocol';
+import type { Feedback } from './feedback';
 import { verifyGoogleIdToken } from './google';
 
 export interface Env {
   ROOM: DurableObjectNamespace<Room>;
+  FEEDBACK: DurableObjectNamespace<Feedback>;
+  /** secret: owner key for GET /api/feedback/export (wrangler secret put ADMIN_KEY) */
+  ADMIN_KEY?: string;
   ASSETS?: Fetcher;
   GOOGLE_CLIENT_ID?: string;
   ROOM_TTL_MS?: string;

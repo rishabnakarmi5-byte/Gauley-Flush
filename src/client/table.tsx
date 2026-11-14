@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { allowedBets } from '../engine';
 import type { Player } from '../engine/types';
-import { AnimatedNumber, Avatar, openSheet, shareRoom } from './components';
+import { ART, Art } from './art';
+import { ArtStrip, openSheet, pickArt } from './components';
+import { IconHistory, IconMenu, IconScales } from './icons';
 import { feedText, fmt, signed } from './format';
-import { flyChips, haptic } from './fly';
+import { haptic } from './fly';
+import type { LineMood } from './lines';
+import { Money, isNoteValue } from './note';
+import { buildFan } from './notes';
+import { Pot, handMotif } from './pile';
 import type { RoomCtx } from './room';
-import { act, setActive, setPending, getState, useStore } from './store';
+import { act, setActive, setPending, useStore } from './store';
+import { WittyLine } from './witty';
 
 // ---------- top bar ----------
 export function TopBar(props: { c: RoomCtx }) {
@@ -14,38 +21,12 @@ export function TopBar(props: { c: RoomCtx }) {
   return (
     <header class="topbar">
       <button class="code-pill" data-testid="code-pill" onClick={() => openSheet('menu')} aria-label="Table menu">
-        <span class={`dot ${online ? 'on' : ''}`} /> {c.st.code}
+        <span class={`dot ${online ? 'on' : ''}`} /> <span class="code-text">{c.st.code}</span>
       </button>
-      <div class="top-title">{c.st.hand ? `Hand #${c.st.hand.no}` : c.st.handNo ? `${c.st.handNo} hand${c.st.handNo === 1 ? '' : 's'} played` : 'New table'}</div>
-      <button class="icon-btn" data-testid="open-history" aria-label="Hand history" onClick={() => openSheet('history')}>{'⏱'}</button>
-      <button class="icon-btn" data-testid="open-menu" aria-label="Menu" onClick={() => openSheet('menu')}>{'☰'}</button>
+      <div class="top-title">{c.st.hand ? `Hand ${c.st.hand.no}` : c.st.handNo ? `${c.st.handNo} hand${c.st.handNo === 1 ? '' : 's'} played` : 'New table'}</div>
+      <button class="icon-btn" data-testid="open-history" aria-label="Hand history" onClick={() => openSheet('history')}><IconHistory /></button>
+      <button class="icon-btn" data-testid="open-menu" aria-label="Menu" onClick={() => openSheet('menu')}><IconMenu /></button>
     </header>
-  );
-}
-
-// ---------- pot ----------
-function statusLine(c: RoomCtx): string {
-  const { st } = c;
-  const h = st.hand;
-  if (!h) return st.endVote ? 'End-game vote in progress' : st.handNo ? 'Between hands. Chai time.' : 'Waiting to deal';
-  if (h.status === 'boot') return `Boot stage · ${h.boots.length} in`;
-  if (h.status === 'claimed') return `${c.name(h.claimBy ?? undefined)} claims the pot`;
-  return `Betting open · ${h.boots.length - h.packed.length} in the hand`;
-}
-
-export function Pot(props: { c: RoomCtx }) {
-  const { st } = props.c;
-  const classicStake = st.hand && st.players.some((p) => p.classic && st.hand!.boots.includes(p.id));
-  return (
-    <div class="felt-center">
-      <div class="pot" id="pot" data-testid="pot-wrap" key={st.hand?.no ?? 0}>
-        <div class="pot-label">POT</div>
-        <div class="pot-amount" data-testid="pot"><AnimatedNumber value={st.pot} /></div>
-        <div class="pot-raw" data-testid="pot-raw" aria-hidden="true">{st.pot}</div>
-        <div class="pot-status" data-testid="status">{statusLine(props.c)}</div>
-        {classicStake && st.hand!.status !== 'boot' && <div class="pot-stake">stake {fmt(st.hand!.stake)}</div>}
-      </div>
-    </div>
   );
 }
 
@@ -62,34 +43,36 @@ function Seat(props: { c: RoomCtx; p: Player }) {
   const claimant = h?.claimBy === p.id;
   const selected = c.tablet && c.active === p.id;
   const bootable = c.tablet && mine && h?.status === 'boot' && !inHand && !p.left;
-  const cls = ['seat', bootable ? 'bootable' : '', mine ? 'mine' : '', selected ? 'selected' : '', inHand ? 'inhand' : '', packed ? 'packed' : '', p.left ? 'left' : '', !online && !p.left ? 'offline' : '', claimant ? 'claimant' : ''].join(' ');
+  const lastFeed = c.st.feed[c.st.feed.length - 1];
+  const won = !h && lastFeed?.type === 'win' && lastFeed.by === p.id;
+  const cls = ['seat', bootable ? 'bootable' : '', mine ? 'mine' : '', selected ? 'selected' : '', inHand ? 'inhand' : '', packed ? 'packed' : '', p.left ? 'left' : '', !online && !p.left ? 'offline' : '', claimant ? 'claimant' : '', won ? 'winner' : ''].join(' ');
+  const state = p.left ? 'left' : packed ? 'packed' : inHand ? `in${p.classic ? (seen ? ' \u00b7 seen' : ' \u00b7 blind') : ''}` : h ? (h.sitOut.includes(p.id) ? 'sat out' : 'waiting') : '';
+  const meta = [p.id === c.st.hostId ? 'host' : '', mine && !c.tablet ? 'you' : '', claimant ? 'claims the pot' : '', state, !online && !p.left ? 'offline' : ''].filter(Boolean);
   return (
-    <div class={cls} data-seat={p.id} data-testid={`seat-${p.name}`} onClick={() => { if (mine && c.tablet) setActive(p.id); }}>
-      <Avatar p={p} size={34} />
-      <div class="seat-name">{p.id === c.st.hostId && <span title="host">{'\u265b'} </span>}{p.name}</div>
-      <div class={`net ${p.net > 0 ? 'up' : p.net < 0 ? 'down' : 'even'}`} data-testid={`net-${p.name}`}>{signed(p.net)}</div>
-      <div class="seat-tags">
-        {mine && !c.tablet && <i class="you">you</i>}
-        {p.left ? <i>left</i> : packed ? <i>packed</i> : inHand ? <i class="in">in{p.classic ? (seen ? ' \u00b7 seen' : ' \u00b7 blind') : ''}</i> : h ? <i>{h.sitOut.includes(p.id) ? 'sitting out' : 'waiting'}</i> : null}
-        {!online && !p.left && <i class="off">offline</i>}
-        {contrib > 0 && <i class="put">in for {fmt(contrib)}</i>}
+    <li class={cls} data-seat={p.id} data-testid={`seat-${p.name}`} onClick={() => { if (mine && c.tablet) setActive(p.id); }}>
+      <div class="seat-who">
+        <div class="seat-name">{p.name}</div>
+        <div class="seat-meta">{meta.map((m, i) => <span key={m} class={m === 'you' ? 'you' : m === 'claims the pot' ? 'claim' : m.startsWith('in') ? 'in' : ''}>{i ? ' \u00b7 ' : ''}{m}</span>)}</div>
       </div>
-      {bootable && <button class="btn tiny primary seat-boot" data-testid={`seat-boot-${p.name}`} onClick={(e) => { e.stopPropagation(); void act({ type: 'boot', by: p.id, seat: p.id }); }}>Boot</button>}
-    </div>
+      {bootable
+        ? <button class="btn outline slim seat-boot" data-testid={`seat-boot-${p.name}`} onClick={(e) => { e.stopPropagation(); void act({ type: 'boot', by: p.id, seat: p.id }); }}>Boot</button>
+        : <div class="seat-in" title="in this hand">{contrib > 0 ? fmt(contrib) : ''}</div>}
+      <div class={`net ${p.net > 0 ? 'up' : p.net < 0 ? 'down' : 'even'}`} data-testid={`net-${p.name}`}>{signed(p.net)}</div>
+    </li>
   );
 }
 
 export function Seats(props: { c: RoomCtx }) {
   return (
-    <div class="seats" data-testid="seats">
+    <ul class="seats" data-testid="seats">
       {props.c.st.players.map((p) => <Seat key={p.id} c={props.c} p={p} />)}
-    </div>
+    </ul>
   );
 }
 
 // ---------- feed ----------
 export function Feed(props: { c: RoomCtx }) {
-  const items = props.c.st.feed.slice(-4).reverse();
+  const items = props.c.st.feed.slice(-3).reverse();
   return (
     <ul class="feed" data-testid="feed">
       {items.map((f, i) => <li key={f.id} class={i === 0 ? 'fresh' : ''}>{feedText(f, props.c.name)}</li>)}
@@ -98,28 +81,33 @@ export function Feed(props: { c: RoomCtx }) {
   );
 }
 
-// ---------- chip fly animation ----------
-export function useFlyEffects(c: RoomCtx) {
-  const last = useRef<number | null>(null);
-  const feed = c.st.feed;
-  useEffect(() => {
-    const maxId = feed.length ? feed[feed.length - 1].id : 0;
-    if (last.current === null) { last.current = maxId; return; }
-    const fresh = feed.filter((f) => f.id > (last.current ?? 0));
-    last.current = Math.max(last.current, maxId);
-    const pot = document.getElementById('pot');
-    for (const f of fresh) {
-      const seat = f.by ? document.querySelector(`[data-seat="${f.by}"]`) : null;
-      if (f.type === 'bet' || f.type === 'boot') flyChips(seat, pot, f.amount ?? 10, f.type === 'boot' ? 0 : 1);
-      else if (f.type === 'win') flyChips(pot, seat, f.amount ?? 10, 2);
-      else if (f.type === 'undo' && f.text === 'bet') flyChips(pot, seat, f.amount ?? 10, 3);
-      if (f.type === 'win' && seat) { seat.classList.add('winner'); setTimeout(() => seat.classList.remove('winner'), 1800); }
-    }
-  }, [feed.length ? feed[feed.length - 1].id : 0]);
+function tableMood(c: RoomCtx): { mood: LineMood; trigger: string } {
+  const st = c.st, h = st.hand;
+  const last = st.feed[st.feed.length - 1];
+  let evt = 0;
+  for (let i = st.feed.length - 1; i >= 0; i--) if (st.feed[i].type === 'pack' || st.feed[i].type === 'win') { evt = st.feed[i].id; break; }
+  let mood: LineMood = 'bet';
+  if (!h) mood = last?.type === 'win' ? 'win' : 'any';
+  else if (h.status === 'boot') mood = 'boot';
+  else if (last?.type === 'pack') mood = 'pack';
+  return { mood, trigger: `${mood}:${evt}` };
 }
 
 // ---------- action bar ----------
-function chipClass(i: number) { return `chip chip-${i % 5}`; }
+
+function PendingFan(props: { amount: number }) {
+  const pieces = props.amount > 0 ? buildFan(props.amount, 6) : [];
+  return (
+    <div class="fan" aria-hidden="true">
+      {pieces.map((p, i) => (
+        <div key={`${p.value}.${i}`} class={`fan-piece ${p.value <= 2 ? 'is-coin' : ''}`}
+          style={{ '--i': i, '--n': pieces.length, '--r': `${(i - (pieces.length - 1) / 2) * 7 + p.rot * 0.12}deg` } as never}>
+          <Money value={p.value} qty={p.qty} />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function BetPanel(props: { c: RoomCtx }) {
   const { c } = props;
@@ -149,37 +137,39 @@ function BetPanel(props: { c: RoomCtx }) {
       )}
       {limits ? (
         <div class="classic-bets">
-          {limits.map((n) => <button key={n} class="btn primary big" data-testid={`classic-${n}`} onClick={() => send(n)}>Chaal {fmt(n)}</button>)}
+          {limits.map((n) => <button key={n} class="btn primary" data-testid={`classic-${n}`} onClick={() => send(n)}>Chaal {fmt(n)}</button>)}
         </div>
       ) : (
         <>
-          <div class="chips" data-testid="chips">
-            {st.settings.chips.map((v, i) => (
-              <button key={v} class={chipClass(i)} data-testid={`chip-${v}`} aria-label={`Add Rs ${v}`} onClick={() => { setPending(seat, amount + v); haptic(8); }}>
-                <span>{v >= 1000 ? `${v / 1000}k` : v}</span>
+          <div class="tiles" data-testid="chips">
+            {st.settings.chips.map((v) => (
+              <button key={v} class={`tile ${isNoteValue(v) || v <= 2 ? 'has-note' : 'plain'}`} data-testid={`chip-${v}`} aria-label={`Add Rs ${v}`}
+                onClick={() => { setPending(seat, amount + v); haptic(8); }}>
+                {isNoteValue(v) || v === 1 || v === 2 ? <Money value={v} /> : <span class="tile-num">{v.toLocaleString('en-IN')}</span>}
               </button>
             ))}
           </div>
           <div class="amount-row">
+            <PendingFan amount={amount} />
             {typing ? (
               <input class="amount-input" data-testid="amount-input" inputMode="numeric" autoFocus value={amount ? String(amount) : ''} placeholder="Rs"
                 onInput={(e) => setPending(seat, Number((e.target as HTMLInputElement).value.replace(/[^0-9]/g, '')) || 0)} />
             ) : (
               <div class="amount" data-testid="pending">{fmt(amount)}</div>
             )}
-            <button class="btn tiny ghost" onClick={() => setTyping(!typing)} data-testid="type-toggle">{typing ? 'Chips' : 'Type'}</button>
-            <button class="btn tiny ghost" data-testid="clear" disabled={!amount} onClick={() => setPending(seat, 0)}>Clear</button>
+            <button class="btn text slim" onClick={() => setTyping(!typing)} data-testid="type-toggle">{typing ? 'Notes' : 'Type'}</button>
+            <button class="btn text slim" data-testid="clear" disabled={!amount} onClick={() => setPending(seat, 0)}>Clear</button>
           </div>
-          <button class="btn primary big chaal" data-testid="chaal" disabled={amount < 1 || amount > st.settings.maxBet} onClick={() => send(amount)}>
-            {amount > st.settings.maxBet ? `Max bet is ${fmt(st.settings.maxBet)}` : amount ? `Chaal ${fmt(amount)}` : 'Pick chips to chaal'}
+          <button class="btn primary chaal" data-testid="chaal" disabled={amount < 1 || amount > st.settings.maxBet} onClick={() => send(amount)}>
+            {amount > st.settings.maxBet ? `Max bet is ${fmt(st.settings.maxBet)}` : amount ? `Chaal ${fmt(amount)}` : 'Pick notes to chaal'}
           </button>
         </>
       )}
       <div class="sec-row">
-        <button class="btn danger" data-testid="pack" onClick={() => act({ type: 'pack', seat })}>Pack</button>
-        {c.me.classic && !seen && <button class="btn secondary" data-testid="see" onClick={() => act({ type: 'seeCards', seat })}>See cards</button>}
-        <button class="btn gold" data-testid="iwon" onClick={() => act({ type: 'claim', seat })}>I won</button>
-        {canUndo && <button class="btn ghost" data-testid="undo" onClick={() => act({ type: 'undo', seat })}>Undo</button>}
+        <button class="btn text danger" data-testid="pack" onClick={() => act({ type: 'pack', seat })}>Pack</button>
+        {c.me.classic && !seen && <button class="btn text" data-testid="see" onClick={() => act({ type: 'seeCards', seat })}>See cards</button>}
+        <button class="btn text gold" data-testid="iwon" onClick={() => act({ type: 'claim', seat })}>I won</button>
+        {canUndo && <button class="btn text" data-testid="undo" onClick={() => act({ type: 'undo', seat })}>Undo</button>}
       </div>
     </div>
   );
@@ -196,6 +186,17 @@ export function ActionBar(props: { c: RoomCtx }) {
   const packed = !!h && h.packed.includes(seat);
   const who = c.tablet ? <div class="acting" data-testid="acting">Acting as <b>{me.name}</b>{c.tablet ? <small> (tap a seat to switch)</small> : null}</div> : null;
   const hostBy = c.hostBy ?? undefined;
+  const barRef = useRef<HTMLDivElement>(null);
+  // let toasts sit just above the bar instead of covering the pot or the code
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const set = () => document.documentElement.style.setProperty('--bar-h', `${el.offsetHeight}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => { ro.disconnect(); document.documentElement.style.removeProperty('--bar-h'); };
+  }, []);
 
   let body;
   if (st.endVote && !h) {
@@ -207,8 +208,8 @@ export function ActionBar(props: { c: RoomCtx }) {
         <p><b>{c.name(v.by)}</b> wants to end the game. {v.agree.length} of {st.players.filter((p) => !p.left).length} agree.</p>
         <div class="sec-row">
           {!agreed || mineLeft.length ? <button class="btn primary" data-testid="agree-end" onClick={async () => { for (const id of mineLeft) await act({ type: 'agreeEnd', by: id, seat: id }); }}>{c.tablet ? 'We all agree' : 'I agree'}</button> : <span class="muted">You agreed. Waiting for the others.</span>}
-          <button class="btn ghost" data-testid="cancel-end" onClick={() => act({ type: 'cancelEnd' })}>Not yet</button>
-          {c.hostLike && <button class="btn danger" data-testid="force-end" onClick={() => act({ type: 'forceEnd', by: hostBy })}>Force end</button>}
+          <button class="btn text" data-testid="cancel-end" onClick={() => act({ type: 'cancelEnd' })}>Not yet</button>
+          {c.hostLike && <button class="btn text danger" data-testid="force-end" onClick={() => act({ type: 'forceEnd', by: hostBy })}>Force end</button>}
         </div>
       </div>
     );
@@ -216,25 +217,25 @@ export function ActionBar(props: { c: RoomCtx }) {
     body = (
       <div class="idle-bar">
         {c.hostLike
-          ? <button class="btn primary big" data-testid="new-hand" disabled={st.players.filter((p) => !p.left).length < 2} onClick={() => act({ type: 'newHand', by: hostBy })}>New hand</button>
+          ? <button class="btn primary" data-testid="new-hand" disabled={st.players.filter((p) => !p.left).length < 2} onClick={() => act({ type: 'newHand', by: hostBy })}>New hand</button>
           : <div class="muted center">Waiting for {c.name(st.hostId)} to deal.</div>}
         <div class="sec-row">
-          <button class="btn secondary" data-testid="end-game" onClick={() => act({ type: 'proposeEnd', seat })}>End game</button>
-          {c.hostLike && st.lastAward && <button class="btn ghost" data-testid="undo-award-bar" onClick={() => act({ type: 'undoAward', by: hostBy })}>Undo last award</button>}
+          <button class="btn outline" data-testid="end-game" onClick={() => act({ type: 'proposeEnd', seat })}>End game</button>
+          {c.hostLike && st.lastAward && <button class="btn text" data-testid="undo-award-bar" onClick={() => act({ type: 'undoAward', by: hostBy })}>Undo last award</button>}
         </div>
       </div>
     );
   } else if (h.status === 'boot') {
     const bootOptions = !booted ? (
       <div class="boot-bar">
-        <button class="btn primary big" data-testid="boot" onClick={() => act({ type: 'boot', seat })}>Boot {fmt(st.settings.boot)}</button>
-        <button class="btn ghost" data-testid="sit-out" onClick={() => act({ type: 'sitOut', seat })}>{h.sitOut.includes(seat) ? 'Sitting out' : 'Sit out'}</button>
+        <button class="btn primary" data-testid="boot" onClick={() => act({ type: 'boot', seat })}>Boot {fmt(st.settings.boot)}</button>
+        <button class="btn text" data-testid="sit-out" onClick={() => act({ type: 'sitOut', seat })}>{h.sitOut.includes(seat) ? 'Sitting out' : 'Sit out'}</button>
       </div>
     ) : h.boots.length >= 2 ? <BetPanel c={c} /> : <div class="muted center" data-testid="wait-boot">You are in. Waiting for one more player to boot{'…'}</div>;
     body = (
       <>
         {bootOptions}
-        {c.hostLike && <div class="sec-row"><button class="btn ghost" data-testid="cancel-hand" onClick={() => act({ type: 'voidHand', by: hostBy })}>Cancel hand (refund boots)</button></div>}
+        {c.hostLike && <div class="sec-row"><button class="btn text" data-testid="cancel-hand" onClick={() => act({ type: 'voidHand', by: hostBy })}>Cancel hand (refund boots)</button></div>}
       </>
     );
   } else if (h.status === 'betting') {
@@ -245,7 +246,7 @@ export function ActionBar(props: { c: RoomCtx }) {
       body = (
         <div class="idle-bar">
           <div class="muted center">{packed ? 'You packed. Watch the drama.' : 'You are out of this hand. You will boot in next time.'}</div>
-          {canUndo && <button class="btn ghost" data-testid="undo" onClick={() => act({ type: 'undo', seat })}>Undo pack</button>}
+          {canUndo && <button class="btn text" data-testid="undo" onClick={() => act({ type: 'undo', seat })}>Undo pack</button>}
         </div>
       );
     }
@@ -256,7 +257,7 @@ export function ActionBar(props: { c: RoomCtx }) {
       body = (
         <div class="vote" data-testid="claim-wait">
           <p>Waiting for another player from this hand to confirm {'…'}</p>
-          <button class="btn ghost" data-testid="withdraw" onClick={() => act({ type: 'withdrawClaim', seat })}>Withdraw claim</button>
+          <button class="btn text" data-testid="withdraw" onClick={() => act({ type: 'withdrawClaim', seat })}>Withdraw claim</button>
         </div>
       );
     } else if (eligible) {
@@ -264,8 +265,8 @@ export function ActionBar(props: { c: RoomCtx }) {
         <div class="vote" data-testid="claim-answer">
           <p><b>{c.name(claimant)}</b> says they won {fmt(st.pot)}.</p>
           <div class="sec-row">
-            <button class="btn primary big" data-testid="confirm" onClick={() => act({ type: 'confirmClaim', seat })}>Confirm</button>
-            <button class="btn danger" data-testid="reject" onClick={() => act({ type: 'rejectClaim', seat })}>Reject</button>
+            <button class="btn primary" data-testid="confirm" onClick={() => act({ type: 'confirmClaim', seat })}>Confirm</button>
+            <button class="btn text danger" data-testid="reject" onClick={() => act({ type: 'rejectClaim', seat })}>Reject</button>
           </div>
         </div>
       );
@@ -275,7 +276,7 @@ export function ActionBar(props: { c: RoomCtx }) {
     }
   }
   return (
-    <div class={`actionbar ${online ? '' : 'offline'}`} data-testid="actionbar">
+    <div class={`actionbar ${online ? '' : 'offline'}`} data-testid="actionbar" ref={barRef}>
       <fieldset class="bar-fields" disabled={!online}>
         {who}
         {body}
@@ -289,7 +290,7 @@ export function ClaimBanner(props: { c: RoomCtx }) {
   if (!h || h.status !== 'claimed') return null;
   return (
     <div class="claim-banner" data-testid="claim-banner">
-      <span class="gavel">{'⚖'}</span>
+      <IconScales size={20} />
       <div><b>{props.c.name(h.claimBy ?? undefined)}</b> says <i>"I won"</i>. Pot {fmt(props.c.st.pot)} is on hold. Betting frozen.</div>
     </div>
   );
@@ -297,13 +298,19 @@ export function ClaimBanner(props: { c: RoomCtx }) {
 
 export function Table(props: { c: RoomCtx }) {
   const { c } = props;
-  useFlyEffects(c);
+  const { mood, trigger } = tableMood(c);
+  const motif = handMotif(c.st.hand?.no ?? c.st.handNo);
+  const strip = pickArt(ART.culture, 'dhaka', 'prayer-flags');
+  useEffect(() => { document.body.classList.add('on-table'); return () => document.body.classList.remove('on-table'); }, []);
   return (
     <div class={`screen table ${c.tablet ? 'tablet' : ''}`} data-testid="table-screen">
       <TopBar c={c} />
+      <ArtStrip name={strip} class="table-strip" />
       <div class="table-grid">
         <div class="table-main scroll">
+          <Art name={motif} class="watermark" key={motif} draw />
           <Pot c={c} />
+          <WittyLine mood={mood} trigger={trigger} class="table-witty" />
           <ClaimBanner c={c} />
           <Seats c={c} />
           <Feed c={c} />
