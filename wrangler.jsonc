@@ -14,7 +14,7 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
   "vars": {
     // Set to your OAuth Web client id to enable "Continue with Google". Empty = hidden.
-    "GOOGLE_CLIENT_ID": ""
+    "GOOGLE_CLIENT_ID": "57429248559-cb07d4hmcf84ec5gdka5bjj3nahsao8g.apps.googleusercontent.com"
   },
   "observability": { "enabled": true }
 }

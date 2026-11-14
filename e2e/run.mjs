@@ -8,7 +8,7 @@ const PORT = Number(process.env.E2E_PORT || 8799);
 const persist = mkdtempSync(join(tmpdir(), 'gf-e2e-'));
 
 function startWrangler(port, extra = []) {
-  const p = spawn('npx', ['wrangler', 'dev', '--port', String(port), '--persist-to', join(persist, String(port)), '--ip', '127.0.0.1', '--inspector-port', String(port + 500), ...extra], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+  const p = spawn('npx', ['wrangler', 'dev', '--port', String(port), '--persist-to', join(persist, String(port)), '--ip', '127.0.0.1', '--inspector-port', String(port + 500), '--var', 'GOOGLE_CLIENT_ID:', ...extra], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   let log = '';
   p.stdout.on('data', (d) => (log += d));
   p.stderr.on('data', (d) => (log += d));
