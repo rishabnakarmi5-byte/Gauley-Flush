@@ -69,9 +69,9 @@ export function Avatar(props: { p: Pick<Player, 'name' | 'avatar'>; size?: numbe
   const s = props.size ?? 36;
   const hue = [...props.p.name].reduce((a, c) => a + c.charCodeAt(0), 0) * 47 % 360;
   return props.p.avatar ? (
-    <img class="avatar" src={props.p.avatar} alt="" width={s} height={s} referrerpolicy="no-referrer" style={{ width: s, height: s }} />
+    <img class="avatar" src={props.p.avatar} alt="" width={s} height={s} referrerpolicy="no-referrer" style={{ width: s, height: s, minWidth: s, flex: 'none' }} />
   ) : (
-    <span class="avatar" style={{ width: s, height: s, background: `hsl(${hue} 45% 32%)`, fontSize: s * 0.45 }}>{initials(props.p.name)}</span>
+    <span class="avatar" style={{ width: s, height: s, minWidth: s, flex: 'none', background: `hsl(${hue} 45% 32%)`, fontSize: s * 0.45 }}>{initials(props.p.name)}</span>
   );
 }
 

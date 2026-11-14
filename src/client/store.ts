@@ -203,6 +203,16 @@ export function nudgeConnection() {
   }
 }
 
+/** network came back: do not trust the old socket, open a fresh one (the server de-dups replays) */
+export function reconnectNow() {
+  if (!wsCode || S.closedReason) return;
+  clearTimeout(reconnectTimer);
+  clearInterval(heartbeat);
+  if (ws) { const w = ws; ws = null; w.onclose = null; w.onmessage = null; w.onerror = null; try { w.close(); } catch { /* */ } }
+  attempt = 0;
+  connect();
+}
+
 function send(m: ClientMsg) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m));
 }
@@ -334,7 +344,8 @@ export function syncRoute() {
 export function startClient() {
   window.addEventListener('hashchange', syncRoute);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { nudgeConnection(); requestWake(); } });
-  window.addEventListener('online', nudgeConnection);
+  window.addEventListener('online', reconnectNow);
+  window.addEventListener('offline', () => { if (wsCode) setState({ online: false }); });
   window.addEventListener('pageshow', nudgeConnection);
   void loadConfig();
   syncRoute();

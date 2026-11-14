@@ -16,7 +16,7 @@ let failN = 0;
 async function step(name, fn, pages = {}) {
   const t0 = Date.now();
   try {
-    await fn();
+    await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('step watchdog: 45s')), 45000))]);
     results.push({ name, ok: true });
     console.log(`  ok   ${name} (${Date.now() - t0}ms)`);
   } catch (e) {
@@ -56,6 +56,7 @@ const wsHook = () => {
   window.__queue = [];
   window.WebSocket = class extends Native {
     constructor(...a) {
+      if (window.__blockWs) a[0] = 'ws://127.0.0.1:1/blocked';
       super(...a);
       window.__sockets.push(this);
     }
@@ -147,6 +148,8 @@ await step('classic limits toggle (per player) and host rules update live', asyn
   await A.page.click(T('save-settings'));
   await until(async () => (await B.page.inputValue(T('set-max'))) === '5000', 'guest sees new max');
   assert(await B.page.locator(T('set-max')).isDisabled(), 'non-host settings are read-only');
+  await A.page.evaluate(() => window.scrollTo(0, 0));
+  await sleep(500);
   await shot(A.page, '02-lobby');
 });
 
@@ -232,7 +235,7 @@ await step('undo takes back your own latest bet only', async () => {
   for (const p of [A, B, C]) await potIs(p.page, 265);
 });
 
-await step('table mid-hand screenshot', async () => { await shot(B.page, '03-table-mid-hand'); });
+await step('table mid-hand screenshot', async () => { await sleep(900); await shot(B.page, '03-table-mid-hand'); });
 
 await step('pack: Hari packs, pot stays, hand continues', async () => {
   await C.page.click(T('pack'));
@@ -285,21 +288,22 @@ await step('another participant confirms: pot goes to the claimant, ledger stays
 await step('reload keeps the seat (token in localStorage)', async () => {
   await B.page.reload();
   await B.page.waitForSelector(T('table-screen'));
-  assert((await B.page.textContent(T('seat-Sita'))).includes('(you)'), 'still Sita');
+  assert((await B.page.textContent(T('seat-Sita'))).includes('you'), 'still Sita (seat tagged you)');
   await netIs(B.page, 'Sita', -put.Sita);
 });
 
 await step('reconnect: banner, disabled actions, then state resync after missed events', async () => {
   await B.ctx.setOffline(true);
-  await B.page.evaluate(() => window.__dropSockets());
+  await B.page.evaluate(() => { window.__blockWs = true; window.__dropSockets(); });
   await B.page.waitForSelector(T('reconnecting'));
   assert(await B.page.locator(T('end-game')).isDisabled(), 'actions disabled while offline');
   await A.page.click(T('new-hand'));          // happens while Sita is away
   await A.page.waitForSelector(T('boot'));
   await B.ctx.setOffline(false);
+  await B.page.evaluate(() => { window.__blockWs = false; window.dispatchEvent(new Event('online')); });
   await B.page.waitForSelector(T('boot'), { timeout: 20000 });
   await until(async () => (await B.page.locator(T('reconnecting')).count()) === 0, 'banner clears');
-});
+}, { A: A.page, B: B.page });
 
 await step('hand 2: sit out, last-one-standing wins automatically', async () => {
   await C.page.click(T('sit-out'));
@@ -388,17 +392,12 @@ await step('tablet: add players locally, a phone can still join the same room', 
   await D.page.waitForSelector(T('room-code'));
   await until(async () => (await TP.locator(`${T('players')} li`).count()) === 5, 'phone joined tablet room');
   await D.ctx.close();
+  TP.on('dialog', (d) => d.accept());
   await TP.click(`${T('player-Dev')} >> text=Remove`);
-  TP.once('dialog', (d) => d.accept());
-}, { TP: undefined });
+  await until(async () => (await TP.locator(`${T('players')} li`).count()) === 4, 'Dev removed (net 0, so fully gone)');
+});
 
 await step('tablet: deal, per-seat boot, select seat then act', async () => {
-  // the confirm() dialog for Remove is auto-handled above; make sure Dev is gone or tidy up
-  TP.on('dialog', (d) => d.accept());
-  await until(async () => (await TP.locator(`${T('players')} li`).count()) === 4, 'Dev removed (net 0)').catch(async () => {
-    await TP.click(`${T('player-Dev')} >> text=Remove`);
-    await until(async () => (await TP.locator(`${T('players')} li`).count()) === 4, 'Dev removed (net 0)');
-  });
   await TP.click(T('deal'));
   await TP.waitForSelector(T('table-screen'));
   for (const n of ['Ram', 'Sita', 'Hari']) await TP.click(T(`seat-boot-${n}`));
@@ -412,6 +411,7 @@ await step('tablet: deal, per-seat boot, select seat then act', async () => {
   assert((await TP.textContent(T('acting'))).includes('Sita'), 'acting as Sita');
   await TP.click(T('chip-50')); await TP.click(T('chaal'));
   await potIs(TP, 180);
+  await sleep(900);
   await shot(TP, '06-tablet-table');
   await TP.setViewportSize({ width: 768, height: 1024 });
   await sleep(300);
