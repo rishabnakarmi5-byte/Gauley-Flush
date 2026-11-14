@@ -133,8 +133,8 @@ export interface Ctx {
 }
 
 export type Result =
-  | { state: State; duplicate?: boolean; error?: undefined }
-  | { error: string; code: string; state?: undefined };
+  | { ok: true; state: State; duplicate?: boolean; error?: undefined; code?: undefined }
+  | { ok: false; error: string; code: string; state?: undefined; duplicate?: undefined };
 
 export interface Transfer {
   from: string;

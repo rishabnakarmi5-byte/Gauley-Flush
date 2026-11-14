@@ -101,7 +101,7 @@ export function settle(s: State): Transfer[] {
   return out;
 }
 
-const err = (error: string, code: string): Result => ({ error, code });
+const err = (error: string, code: string): Result => ({ ok: false, error, code });
 
 function feed(s: State, ctx: Ctx, item: Omit<FeedItem, 'id' | 't'>) {
   s.feed.push({ id: s.nextFeed++, t: ctx.now, ...item });
@@ -211,7 +211,7 @@ export function apply(prev: State, envelope: ActionEnvelope, ctx: Ctx): Result {
   const a = envelope as Action & { actionId?: string };
   if (!a || typeof a !== 'object' || typeof a.type !== 'string') return err('That did not look like a move.', 'bad_action');
   if (a.actionId !== undefined && (typeof a.actionId !== 'string' || a.actionId.length > 64)) return err('Bad action id.', 'bad_action');
-  if (a.actionId && prev.recentIds.includes(a.actionId)) return { state: prev, duplicate: true };
+  if (a.actionId && prev.recentIds.includes(a.actionId)) return { ok: true, state: prev, duplicate: true };
 
   const s: State = structuredClone(prev);
   const r = reduce(s, a, ctx);
@@ -221,7 +221,7 @@ export function apply(prev: State, envelope: ActionEnvelope, ctx: Ctx): Result {
     s.recentIds.push(a.actionId);
     if (s.recentIds.length > RECENT_IDS) s.recentIds.splice(0, s.recentIds.length - RECENT_IDS);
   }
-  return { state: s };
+  return { ok: true, state: s };
 }
 
 /** mutates s; returns an error Result or undefined on success */

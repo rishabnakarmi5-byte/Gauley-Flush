@@ -6,19 +6,19 @@ export function room(n: number, names?: string[]): State {
   let s = createRoom('ABCD', names?.[0] ?? 'P1', NOW) as State;
   for (let i = 2; i <= n; i++) {
     const r = apply(s, { type: 'join', by: `s${i}`, id: `s${i}`, name: names?.[i - 1] ?? `P${i}` }, { now: NOW });
-    if (r.error) throw new Error(r.error);
+    if (!r.ok) throw new Error(r.error);
     s = r.state;
   }
   return s;
 }
 export function ok(s: State, a: Action, ctx: Ctx = { now: NOW }): State {
   const r = apply(s, { ...a, actionId: `t${++counter}` } as any, ctx);
-  if (r.error) throw new Error(`expected ok, got ${r.code}: ${r.error} for ${JSON.stringify(a)}`);
+  if (!r.ok) throw new Error(`expected ok, got ${r.code}: ${r.error} for ${JSON.stringify(a)}`);
   return r.state;
 }
 export function bad(s: State, a: Action, code?: string, ctx: Ctx = { now: NOW }) {
   const r = apply(s, a as any, ctx);
-  if (!r.error) throw new Error(`expected error for ${JSON.stringify(a)}`);
+  if (r.ok) throw new Error(`expected error for ${JSON.stringify(a)}`);
   if (code && r.code !== code) throw new Error(`expected code ${code} got ${r.code} (${r.error})`);
   return r;
 }

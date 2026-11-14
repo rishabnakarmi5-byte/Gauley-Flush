@@ -79,7 +79,7 @@ describe('property: random sequences', () => {
         const connected = r() < 0.7 ? undefined : s.players.filter(() => r() < 0.7).map((p) => p.id);
         const res = apply(s, { ...a, actionId: r() < 0.1 ? `id${Math.floor(r() * 20)}` : `a${seed}-${i}` } as any, { now: NOW + i, connected });
         steps++;
-        if (res.error) {
+        if (!res.ok) {
           errCount++;
         } else {
           okCount++;
@@ -103,7 +103,7 @@ describe('property: random sequences', () => {
       const r = rng(seed);
       const n = 2 + Math.floor(r() * 11);
       let s = room(n);
-      const go = (a: Action, c?: string[]) => { const x = apply(s, a as any, { now: NOW, connected: c }); if (!x.error) s = x.state; check(s, `smart ${seed}`); return !x.error; };
+      const go = (a: Action, c?: string[]) => { const x = apply(s, a as any, { now: NOW, connected: c }); if (x.ok) s = x.state; check(s, `smart ${seed}`); return x.ok; };
       for (let h = 0; h < 12; h++) {
         go({ type: 'newHand', by: 's1' });
         for (const p of s.players) if (r() < 0.85) go({ type: 'boot', by: p.id, seat: p.id });
