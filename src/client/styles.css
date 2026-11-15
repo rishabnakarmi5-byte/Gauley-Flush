@@ -21,8 +21,10 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; background: var(--bg); color: var(--ink); overflow-x: hidden; }
-body { font: 400 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; font-optical-sizing: auto; overscroll-behavior-y: none; }
+/* Only <html> may be the page scroller. overflow:hidden on body would make it a second scroll box and,
+   combined with overscroll-behavior:none, swallow swipes so the page cannot scroll. */
+html { margin: 0; background: var(--bg); overflow-x: hidden; overscroll-behavior-y: none; }
+body { margin: 0; background: var(--bg); color: var(--ink); overflow-x: clip; font: 400 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; font-optical-sizing: auto; }
 #app { min-height: 100dvh; }
 h1, h2, h3, p { margin: 0; }
 h1 { font: 300 34px/1.1 var(--serif); letter-spacing: -.02em; margin: 8px 0 16px; }
